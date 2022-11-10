@@ -1,0 +1,328 @@
+Created Domain in Account A  ----------XXXXXXXXXXXXXXXXXXXX
+
+Created Domain in Account B  ----------XXXXXXXXXXXXXXXXXXXX
+
+Created One instance in Account A --------XXXXXXXXXXXXXXXXX
+
+Created One instance in Account B --------XXXXXXXXXXXXXXXXX
+================
+Created user in Account A -----XXXXXXXXX
+
+Access key : XXXXXXXXXXXXXXXXXXXXX
+
+Secert Key : XXXXXXXXXXXXXXXXXXXXX
+
+===============
+
+Created user in Account B ----XXXXXXXXXXXXXXXXXX
+
+Access key :XXXXXXXXXXXXXXXXXXXXX
+
+SecertKey  :XXXXXXXXXXXXXXXXXXXXX
+
+===============
+
+Install python and awscli in both server
+
+Install ---- apt install python3-pip
+
+Install ---- pip install requests-aws4auth
+
+Install boto3 ---- pip install boto3 
+
+===============
+
+Configure AWS cli in both instances
+
+===============
+
+Create s3 bucket in Account A with same region (Domain) -------XXXXXXXXXXXXXXXXXXX
+
+===============
+
+Create Policy in Account A -----------XXXXXXXXXXXXXXX
+
+============
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": [
+        "s3:ListBucket"
+      ],
+      "Effect": "Allow",
+      "Resource": [
+        "arn:aws:s3:::XXXXXXXXXXX" -----------Account A s3 bucket arn
+      ]
+    },
+    {
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "iam:PassRole"
+      ],
+      "Effect": "Allow",
+      "Resource": [
+        "arn:aws:s3:::XXXXXXXXXXX/*"
+      ]
+    }
+  ]
+}
+===============
+
+Create role in Account A (XXXXXXXXX) and attach the newly created policy.
+
+==============
+
+Update the trust relationship for the role
+
+===============
+
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "es.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+
+====================
+
+Create one more policy in Account A (XXXXXXXXXX) ----and attach this policy with same role (XXXXXXXXX)
+
+=============
+
+{
+    "Version": "2012-10-17",
+    "Statement": [
+    {
+        "Effect": "Allow",
+        "Action": "iam:PassRole",
+        "Resource": "arn:aws:iam::XXXXXXXXXXX:role/XXXXXXXXXXXXXXXX"  ------------role arn for Account A
+    },
+    {
+        "Effect": "Allow",
+        "Action": "es:ESHttpPut",
+        "Resource": "arn:aws:es:XXXXXXXXXX:XXXXXXXXXXXXXXX:domain/XXXXXXXXXXXXXXX/*" -----------Domain ARN for account A
+    }
+  ]
+}
+
+=================
+
+Create one user in Account A and attach the both policy(XXXXXX)and(XXXXXX) to the user.
+
+================
+
+Then attach the  AmazonOpenSearchServiceFullAccess policy to the user
+================
+
+Attach the role(XXXXXXXXX) to the EC2  in Account A
+================
+
+Register s3 bucket in Account A using python script
+---------------
+Create repo
+
+Create a python file 
+
+cat >/tmp/register-repo.py <<"EOF"
+import boto3
+import requests
+from requests_aws4auth import AWS4Auth
+
+host = 'https://vpc-elkmigratetest-2fdd6uimt4e4maw7jpl36fwpri.us-east-1.es.amazonaws.com/'
+region = 'us-east-1' # For example, us-west-1
+service = 'es'
+credentials = boto3.Session().get_credentials()
+awsauth = AWS4Auth(credentials.access_key, credentials.secret_key, region, service, session_token=credentials.token)
+
+# Register repository
+path = '_snapshot/SNAPSHOT_NAME' # the Elasticsearch API endpoint
+url = host + path
+
+payload = {
+  "type": "s3",
+  "settings": {
+    "bucket": "XXXXXXX", ------------Account A s3 bucket name
+    "region": "XXXXXXX",  -----------Account A s3 bucket location
+    "role_arn": "arn:aws:iam::XXXXXXXX:role/XXXXXXXXX" ----------Account A role arn
+  }
+}
+
+headers = {"Content-Type": "application/json"}
+
+r = requests.put(url, auth=awsauth, json=payload, headers=headers)
+
+print(r.status_code)
+print(r.text)
+EOF
+----------------
+chmod 700 register-repo.py
+python3 register-repo.py
+
+root@ip-172-31-95-8:/tmp# python3 register-repo.py
+200
+{"acknowledged":true}
+
+-------------------
+
+Create One Role in Account B
+
+------------------
+
+Create Policy in Account B and attach the this policy to the role
+
+==================
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Action": [
+                "s3:ListBucket"
+            ],
+            "Effect": "Allow",
+            "Resource": [
+                "arn:aws:s3:::XXXXXXXXX"  --> S3 bucket ARN from Account A
+            ]
+        },
+        {
+            "Action": [
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:DeleteObject",
+                "iam:PassRole"
+            ],
+            "Effect": "Allow",
+            "Resource": [
+                "arn:aws:s3:::XXXXXXXX/*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": "iam:PassRole",
+            "Resource": "arn:aws:iam::Account B:role/cross"  --> role created in Account B 
+        },
+        {
+            "Effect": "Allow",
+            "Action": "es:*",
+            "Resource": "arn:aws:es:us-east-1:Account B:domain/restore/*"  --> Destination ES domain in Account B
+        }
+    ]
+}
+============
+
+Update the trust relationship in role
+
+-----------
+
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "es.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+
+------------
+
+Attach  the policy to the user in Account B
+
+Attach "AmazonOpenSearchServiceFullAccess" policy to the user
+
+--------------
+
+
+Update the S3 bucket policy for your bucket in Account A, providing Account B access to your bucket:
+
+--------------
+
+{
+    "Version": "2012-10-17",
+    "Id": "Policy1568001010746",
+    "Statement": [
+        {
+            "Sid": "Stmt1568000712531",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": "arn:aws:iam::Account B:role/cross"  --> Role which is created in Account B 
+            },
+            "Action": "s3:*",
+            "Resource": "arn:aws:s3:::snapshot"        ----------> Account A s3 bucket arn
+        },
+        {
+            "Sid": "Stmt1568001007239",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": "arn:aws:iam::Account B:role/cross" -->  Role which is created in Account B 
+            },
+            "Action": "s3:*",
+            "Resource": "arn:aws:s3:::snapshot/*"     --------------> Account A s3 bucket arn
+        }
+    ]
+}
+------------------
+
+Attach the role to the instance in Account B
+------------------
+
+Enable s3 bucket permission --- Object Ownership ------ Edit - ACLs Enabled
+
+Enable all traffic in domain VPC security group.
+--------------------
+
+Register s3 bucket in Account B using python script
+
+
+-----
+Create repo
+
+Create a python file 
+
+cat >/tmp/register-repo.py <<"EOF"
+import boto3
+import requests
+from requests_aws4auth import AWS4Auth
+
+host = 'https://vpc-elkmigratetest-2fdd6uimt4e4maw7jpl36fwpri.us-east-1.es.amazonaws.com/'
+region = 'us-east-1' # For example, us-west-1
+service = 'es'
+credentials = boto3.Session().get_credentials()
+awsauth = AWS4Auth(credentials.access_key, credentials.secret_key, region, service, session_token=credentials.token)
+
+# Register repository
+path = '_snapshot/my-snapshot-repo' # the Elasticsearch API endpoint
+url = host + path
+
+payload = {
+  "type": "s3",
+  "settings": {
+    "bucket": "XXXXXXXXX", ------------------------ Account A s3 bucket name
+    "region": "XXXXXXXXX",  ---------------------------- Account A s3 bucket location
+    "role_arn": "arn:aws:iam::XXXXXXXXXX:role/XXXXXXXXXXX"  ------------------Account B role
+  }
+}
+
+headers = {"Content-Type": "application/json"}
+
+r = requests.put(url, auth=awsauth, json=payload, headers=headers)
+
+print(r.status_code)
+print(r.text)
+EOF
+-------------
+
+After repo have been registered need to disable s3 bucket permission --- Object Ownership ------ Edit - ACLs disabled.
+
+-----------------
